@@ -9,3 +9,4 @@ scikit-learn>=1.4
 filterpy>=1.4.5
 python-multipart>=0.0.9
 pydantic>=2.6
+vercel_blob>=0.2.0

@@ -16,8 +16,31 @@ try:
 except Exception:
     pass
 
-from config import PLOTS_DIR
+from config import PLOTS_DIR, ON_VERCEL
 from sensing.odmr_simulator import lorentzian_multi_dip
+
+
+def _save(fig, filename):
+    """Save a figure and return whatever a caller should treat as this
+    plot's location: a local filesystem path normally, or a public Vercel
+    Blob URL when running on Vercel (where local files don't persist and
+    can't be served back to the browser on a later request)."""
+    if ON_VERCEL:
+        import io
+        import vercel_blob
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=300)
+        plt.close(fig)
+        buf.seek(0)
+        resp = vercel_blob.put(f"plots/{filename}", buf.read(),
+                                {"access": "public", "addRandomSuffix": "false"})
+        return resp["url"]
+    else:
+        path = os.path.join(PLOTS_DIR, filename)
+        fig.savefig(path, dpi=300)
+        plt.close(fig)
+        return path
 
 
 def plot_odmr_fit_examples(examples, filename="odmr_fit_examples.png"):
@@ -47,10 +70,7 @@ def plot_odmr_fit_examples(examples, filename="odmr_fit_examples.png"):
         ax.set_ylabel("Normalized fluorescence")
         ax.legend(fontsize=8)
     fig.tight_layout()
-    path = os.path.join(PLOTS_DIR, filename)
-    fig.savefig(path, dpi=300)
-    plt.close(fig)
-    return path
+    return _save(fig, filename)
 
 
 def plot_magnetic_map_trajectories(mag_map, gt_xy, ekf_xy=None, pf_xy=None,
@@ -76,10 +96,7 @@ def plot_magnetic_map_trajectories(mag_map, gt_xy, ekf_xy=None, pf_xy=None,
     ax.set_title("Magnetic map with trajectories")
     ax.legend()
     fig.tight_layout()
-    path = os.path.join(PLOTS_DIR, filename)
-    fig.savefig(path, dpi=300)
-    plt.close(fig)
-    return path
+    return _save(fig, filename)
 
 
 def plot_position_error_time(t, ekf_err=None, pf_err=None,
@@ -94,10 +111,7 @@ def plot_position_error_time(t, ekf_err=None, pf_err=None,
     ax.set_title("Position error over time")
     ax.legend()
     fig.tight_layout()
-    path = os.path.join(PLOTS_DIR, filename)
-    fig.savefig(path, dpi=300)
-    plt.close(fig)
-    return path
+    return _save(fig, filename)
 
 
 def plot_heading_error_time(t, ekf_err_deg=None, pf_err_deg=None,
@@ -112,10 +126,7 @@ def plot_heading_error_time(t, ekf_err_deg=None, pf_err_deg=None,
     ax.set_title("Heading error over time")
     ax.legend()
     fig.tight_layout()
-    path = os.path.join(PLOTS_DIR, filename)
-    fig.savefig(path, dpi=300)
-    plt.close(fig)
-    return path
+    return _save(fig, filename)
 
 
 def plot_ekf_covariance_innovations(t, P_diag_history, nis_series,
@@ -139,10 +150,7 @@ def plot_ekf_covariance_innovations(t, P_diag_history, nis_series,
     axes[1].legend()
 
     fig.tight_layout()
-    path = os.path.join(PLOTS_DIR, filename)
-    fig.savefig(path, dpi=300)
-    plt.close(fig)
-    return path
+    return _save(fig, filename)
 
 
 def plot_pf_neff_time(t, neff_series, resampled_series,
@@ -158,10 +166,7 @@ def plot_pf_neff_time(t, neff_series, resampled_series,
     ax.set_title("Particle filter N_eff and resampling events")
     ax.legend()
     fig.tight_layout()
-    path = os.path.join(PLOTS_DIR, filename)
-    fig.savefig(path, dpi=300)
-    plt.close(fig)
-    return path
+    return _save(fig, filename)
 
 
 def plot_rmse_vs_axis_count(axis_counts, rmse_values,
@@ -172,7 +177,4 @@ def plot_rmse_vs_axis_count(axis_counts, rmse_values,
     ax.set_ylabel("Position RMSE (m)")
     ax.set_title("RMSE vs. axis count")
     fig.tight_layout()
-    path = os.path.join(PLOTS_DIR, filename)
-    fig.savefig(path, dpi=300)
-    plt.close(fig)
-    return path
+    return _save(fig, filename)

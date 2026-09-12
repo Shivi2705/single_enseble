@@ -10,15 +10,35 @@ import numpy as np
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(BASE_DIR, "dataset")
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-PLOTS_DIR = os.path.join(OUTPUT_DIR, "plots")
-MAPS_DIR = os.path.join(BASE_DIR, "maps")
-
-GROUND_TRUTH_CSV = os.path.join(DATASET_DIR, "ground_truth_3600s.csv")
 METADATA_JSON = os.path.join(DATASET_DIR, "dataset_metadata.json")
+GROUND_TRUTH_CSV = os.path.join(DATASET_DIR, "ground_truth_3600s.csv")
+
+# Vercel Functions ship a read-only filesystem except for /tmp, and /tmp is
+# not guaranteed to persist between invocations (each may land on a
+# different instance). ON_VERCEL is true whenever this is running as a
+# Vercel Function (Vercel sets VERCEL=1 automatically) -- in that case we
+# write npz/map files to /tmp (fine, they're only read back within the same
+# request) and route generated plots through Vercel Blob storage instead of
+# a local static mount (see utils/plotting.py). Locally / on a normal host
+# (Render, Railway, a VM, etc.) everything still lives under backend/output
+# exactly as before.
+ON_VERCEL = bool(os.environ.get("VERCEL"))
+
+if ON_VERCEL:
+    OUTPUT_DIR = os.path.join("/tmp", "output")
+    MAPS_DIR = os.path.join("/tmp", "maps")
+else:
+    OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+    MAPS_DIR = os.path.join(BASE_DIR, "maps")
+PLOTS_DIR = os.path.join(OUTPUT_DIR, "plots")
 
 for d in (OUTPUT_DIR, PLOTS_DIR, MAPS_DIR):
     os.makedirs(d, exist_ok=True)
+
+# Vercel Blob store to persist plot PNGs across requests/instances. Only
+# used when ON_VERCEL; requires a Blob store connected to the project
+# (adds BLOB_READ_WRITE_TOKEN automatically -- see deployment notes).
+BLOB_READ_WRITE_TOKEN = os.environ.get("BLOB_READ_WRITE_TOKEN")
 
 
 def load_metadata():

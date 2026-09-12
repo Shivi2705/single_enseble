@@ -58,23 +58,43 @@ app.add_middleware(
 
 # Serve output/plots as static files so the frontend can load plot images by
 # URL (e.g. <img src="http://localhost:8000/static/plots/ekf_map_trajectory_...png">)
-# instead of trying to load a server-local filesystem path like
-# "D:\nv\nv_nav_backend\backend\output\plots\pf_heading_error_....png", which
-# a browser can never fetch.
-app.mount("/static/plots", StaticFiles(directory=config.PLOTS_DIR), name="plots")
+# instead of trying to load a server-local filesystem path. On Vercel this
+# mount would point at an ephemeral /tmp that's empty on the next cold
+# start, so plotting.py uploads to Vercel Blob instead and returns a public
+# https:// URL directly -- nothing to mount in that case.
+if not config.ON_VERCEL:
+    app.mount("/static/plots", StaticFiles(directory=config.PLOTS_DIR), name="plots")
 
 
 def _plot_url(local_path: str) -> str:
-    """Convert an on-disk plot path into a URL served by the /static/plots mount."""
+    """Convert a plotting.py return value into a URL the frontend can fetch.
+    On Vercel this is already a public Blob https:// URL -- pass it through
+    unchanged. Locally it's an absolute filesystem path -- rewrite it to the
+    /static/plots mount above."""
+    if local_path.startswith("http://") or local_path.startswith("https://"):
+        return local_path
     return f"/static/plots/{os.path.basename(local_path)}"
 
 
 def _cleanup_old_plots(prefixes, keep=1):
     """Each /run-ekf or /run-pf call generates a fresh, uniquely-timestamped
     set of PNGs, and nothing was ever deleting the old ones -- the plots
-    directory grows without bound. Before saving a new run's plots, delete
-    older files sharing the same prefix (e.g. 'ekf_position_error_'), keeping
-    only the most recent `keep` run(s) per plot type."""
+    directory (or Blob store) grows without bound. Before saving a new
+    run's plots, delete older files sharing the same prefix (e.g.
+    'ekf_position_error_'), keeping only the most recent `keep` run(s) per
+    plot type. On Vercel this cleans up the Blob store instead of local
+    disk (local /tmp cleanup there is a no-op since it doesn't persist)."""
+    if config.ON_VERCEL:
+        import vercel_blob
+        for prefix in prefixes:
+            listing = vercel_blob.list({"prefix": f"plots/{prefix}"})
+            blobs = sorted(listing.get("blobs", []), key=lambda b: b["uploadedAt"])
+            for old in blobs[:max(0, len(blobs) - keep)]:
+                try:
+                    vercel_blob.delete(old["url"])
+                except Exception:
+                    pass
+        return
     for prefix in prefixes:
         matches = sorted(
             glob.glob(os.path.join(config.PLOTS_DIR, f"{prefix}*.png")),
@@ -551,6 +571,14 @@ def get_metrics():
 
 @app.get("/plots")
 def list_plots():
+    if config.ON_VERCEL:
+        import vercel_blob
+        listing = vercel_blob.list({"prefix": "plots/"})
+        plots = [
+            {"filename": os.path.basename(b["pathname"]), "url": b["url"]}
+            for b in listing.get("blobs", [])
+        ]
+        return {"plots": plots}
     if not os.path.isdir(config.PLOTS_DIR):
         return {"plots": []}
     files = sorted(os.listdir(config.PLOTS_DIR))
