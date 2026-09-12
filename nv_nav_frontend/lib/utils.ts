@@ -29,12 +29,18 @@ export function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 }
 
-/** Builds a URL to a backend-served file/plot path via the /file-proxy convention.
- * Falls back to treating the path as already-absolute if it looks like a URL. */
+/** Builds a URL to a backend-served plot image.
+ * The backend mounts output/plots at /static/plots (see main.py), so any
+ * plot path/filename just needs to be resolved against that mount + the
+ * configured API base. Handles three shapes we might get back from the
+ * API: an already-absolute URL, a "/static/plots/xyz.png" path, or a bare
+ * filename / server-local path (older responses) -- in the last case we
+ * just take the basename and point it at the static mount. */
 export function resolveBackendAsset(path: string): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
   const base = apiBase();
-  const filename = path.split("/").pop();
-  return `${base}/static-file?path=${encodeURIComponent(path)}&filename=${encodeURIComponent(filename || "")}`;
+  if (path.startsWith("/static/")) return `${base}${path}`;
+  const filename = path.split(/[\\/]/).pop();
+  return `${base}/static/plots/${encodeURIComponent(filename || "")}`;
 }

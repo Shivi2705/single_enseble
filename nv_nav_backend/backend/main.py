@@ -13,9 +13,12 @@ import shutil
 
 import numpy as np
 import pandas as pd
+import glob
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
@@ -53,8 +56,61 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve output/plots as static files so the frontend can load plot images by
+# URL (e.g. <img src="http://localhost:8000/static/plots/ekf_map_trajectory_...png">)
+# instead of trying to load a server-local filesystem path like
+# "D:\nv\nv_nav_backend\backend\output\plots\pf_heading_error_....png", which
+# a browser can never fetch.
+app.mount("/static/plots", StaticFiles(directory=config.PLOTS_DIR), name="plots")
+
+
+def _plot_url(local_path: str) -> str:
+    """Convert an on-disk plot path into a URL served by the /static/plots mount."""
+    return f"/static/plots/{os.path.basename(local_path)}"
+
+
+def _cleanup_old_plots(prefixes, keep=1):
+    """Each /run-ekf or /run-pf call generates a fresh, uniquely-timestamped
+    set of PNGs, and nothing was ever deleting the old ones -- the plots
+    directory grows without bound. Before saving a new run's plots, delete
+    older files sharing the same prefix (e.g. 'ekf_position_error_'), keeping
+    only the most recent `keep` run(s) per plot type."""
+    for prefix in prefixes:
+        matches = sorted(
+            glob.glob(os.path.join(config.PLOTS_DIR, f"{prefix}*.png")),
+            key=os.path.getmtime,
+        )
+        for old_file in matches[:max(0, len(matches) - keep)]:
+            try:
+                os.remove(old_file)
+            except OSError:
+                pass
+
+
 GT_DF = pd.read_csv(config.GROUND_TRUTH_CSV)
 RNG = np.random.default_rng(7)
+
+# The sensing pipeline (ODMR simulate + peak-fit for every timestep x axis)
+# is the expensive part of /run-ekf and /run-pf, and it doesn't depend on
+# which filter is run afterwards. If the frontend runs EKF then PF (or vice
+# versa) back-to-back with the same axis_count/subset_axes/n_steps, reuse
+# the cached sensing result instead of recomputing 3600 x n_axes curve fits
+# a second time. Cleared automatically once it grows past a few entries.
+_SENSING_CACHE = {}
+_SENSING_CACHE_MAX = 4
+
+
+def _cached_sensing_pipeline(use_real_data, axis_count, subset_axes, n_steps):
+    key = (use_real_data, axis_count,
+           tuple(subset_axes) if subset_axes else None, n_steps)
+    if key in _SENSING_CACHE:
+        logger.info(f"Reusing cached sensing pipeline result for key={key}")
+        return _SENSING_CACHE[key]
+    result = run_sensing_pipeline(use_real_data, axis_count, subset_axes, n_steps)
+    if len(_SENSING_CACHE) >= _SENSING_CACHE_MAX:
+        _SENSING_CACHE.pop(next(iter(_SENSING_CACHE)))
+    _SENSING_CACHE[key] = result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +309,7 @@ def _run_filter_common(req, filter_kind: str):
     axis_count = req.axis_count
     n_steps = req.n_steps if req.n_steps else config.N_STEPS
 
-    sensing = run_sensing_pipeline(True, axis_count, idx, n_steps=n_steps)
+    sensing = _cached_sensing_pipeline(True, axis_count, idx, n_steps)
     mag_map = _build_map()
 
     t_arr = sensing["t"]
@@ -328,15 +384,19 @@ def run_ekf(req: RunEKFRequest):
              innovation=np.array(ekf.history["innovation"]),
              K_norm=np.array(ekf.history["K_norm"]))
 
+    _cleanup_old_plots([
+        "ekf_position_error_", "ekf_heading_error_",
+        "ekf_covariance_innovations_", "ekf_map_trajectory_",
+    ])
     plot_paths = {
-        "position_error_time": plotting.plot_position_error_time(t_arr, ekf_err=pos_err,
-                                                                   filename=f"ekf_position_error_{ts}.png"),
-        "heading_error_time": plotting.plot_heading_error_time(t_arr, ekf_err_deg=heading_err,
-                                                                filename=f"ekf_heading_error_{ts}.png"),
-        "covariance_innovations": plotting.plot_ekf_covariance_innovations(
-            t_arr, P_diag_hist, nis_hist, filename=f"ekf_covariance_innovations_{ts}.png"),
-        "map_trajectory": plotting.plot_magnetic_map_trajectories(
-            mag_map, gt_xy, ekf_xy=est_xy, filename=f"ekf_map_trajectory_{ts}.png"),
+        "position_error_time": _plot_url(plotting.plot_position_error_time(
+            t_arr, ekf_err=pos_err, filename=f"ekf_position_error_{ts}.png")),
+        "heading_error_time": _plot_url(plotting.plot_heading_error_time(
+            t_arr, ekf_err_deg=heading_err, filename=f"ekf_heading_error_{ts}.png")),
+        "covariance_innovations": _plot_url(plotting.plot_ekf_covariance_innovations(
+            t_arr, P_diag_hist, nis_hist, filename=f"ekf_covariance_innovations_{ts}.png")),
+        "map_trajectory": _plot_url(plotting.plot_magnetic_map_trajectories(
+            mag_map, gt_xy, ekf_xy=est_xy, filename=f"ekf_map_trajectory_{ts}.png")),
     }
 
     logger.info(f"run-ekf complete: RMSE={rmse_pos:.2f} m, max_err={max_err:.2f} m")
@@ -393,15 +453,18 @@ def run_pf(req: RunPFRequest):
     np.savez(npz_path, t=t_arr, est_xy=est_xy, est_psi=est_psi, gt_xy=gt_xy,
              gt_psi=gt_psi, N_eff=neff_hist, resampled=resampled_hist)
 
+    _cleanup_old_plots([
+        "pf_position_error_", "pf_heading_error_", "pf_neff_", "pf_map_trajectory_",
+    ])
     plot_paths = {
-        "position_error_time": plotting.plot_position_error_time(t_arr, pf_err=pos_err,
-                                                                   filename=f"pf_position_error_{ts}.png"),
-        "heading_error_time": plotting.plot_heading_error_time(t_arr, pf_err_deg=heading_err,
-                                                                filename=f"pf_heading_error_{ts}.png"),
-        "neff_time": plotting.plot_pf_neff_time(t_arr, neff_hist, resampled_hist,
-                                                 filename=f"pf_neff_{ts}.png"),
-        "map_trajectory": plotting.plot_magnetic_map_trajectories(
-            mag_map, gt_xy, pf_xy=est_xy, filename=f"pf_map_trajectory_{ts}.png"),
+        "position_error_time": _plot_url(plotting.plot_position_error_time(
+            t_arr, pf_err=pos_err, filename=f"pf_position_error_{ts}.png")),
+        "heading_error_time": _plot_url(plotting.plot_heading_error_time(
+            t_arr, pf_err_deg=heading_err, filename=f"pf_heading_error_{ts}.png")),
+        "neff_time": _plot_url(plotting.plot_pf_neff_time(
+            t_arr, neff_hist, resampled_hist, filename=f"pf_neff_{ts}.png")),
+        "map_trajectory": _plot_url(plotting.plot_magnetic_map_trajectories(
+            mag_map, gt_xy, pf_xy=est_xy, filename=f"pf_map_trajectory_{ts}.png")),
     }
 
     logger.info(f"run-pf complete: RMSE={rmse_pos:.2f} m, max_err={max_err:.2f} m")
@@ -492,7 +555,7 @@ def list_plots():
         return {"plots": []}
     files = sorted(os.listdir(config.PLOTS_DIR))
     plots = [
-        {"filename": f, "path": os.path.join(config.PLOTS_DIR, f)}
+        {"filename": f, "url": _plot_url(f)}
         for f in files if f.lower().endswith(".png")
     ]
     return {"plots": plots}
