@@ -1,0 +1,48 @@
+{
+  "dt": 1.0,
+  "n_steps": 3600,
+  "domain_m": 1000.0,
+  "nv_axes": [
+    [
+      0.5773502691896258,
+      0.5773502691896258,
+      0.5773502691896258
+    ],
+    [
+      0.5773502691896258,
+      -0.5773502691896258,
+      -0.5773502691896258
+    ],
+    [
+      -0.5773502691896258,
+      0.5773502691896258,
+      -0.5773502691896258
+    ],
+    [
+      -0.5773502691896258,
+      -0.5773502691896258,
+      0.5773502691896258
+    ]
+  ],
+  "D_zfs_mhz": 2870.08,
+  "E_strain_mhz": 1.0,
+  "gamma_e_mhz_per_g": 2.802,
+  "A_par_mhz": -2.17,
+  "P_quad_mhz": -4.95,
+  "imu_noise": {
+    "accel_noise_density_ug_sqrtHz": 150.0,
+    "gyro_noise_density_dps_sqrtHz": 0.01,
+    "accel_std_per_sample_mps2": 0.0010401523073584585,
+    "gyro_std_per_sample_radps": 0.00012341341494884352
+  },
+  "linewidth_mhz_range": [
+    1.0,
+    5.0
+  ],
+  "contrast_range": [
+    0.05,
+    0.3
+  ],
+  "map_resolution_m": 10.0,
+  "notes": "Synthesized locally per Section 8 of the design report because the uploaded dataset attachment was empty; not real survey data."
+}

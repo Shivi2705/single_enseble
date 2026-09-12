@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 25% 98%;
+    --foreground: 224 30% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 30% 12%;
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 189 85% 43%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 220 20% 94%;
+    --muted-foreground: 220 10% 45%;
+    --accent: 189 94% 95%;
+    --accent-foreground: 224 30% 12%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 20% 88%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 224 32% 8%;
+    --foreground: 220 20% 96%;
+    --card: 224 28% 11%;
+    --card-foreground: 220 20% 96%;
+    --primary: 243 82% 68%;
+    --primary-foreground: 224 32% 8%;
+    --secondary: 189 80% 55%;
+    --secondary-foreground: 224 32% 8%;
+    --muted: 224 20% 16%;
+    --muted-foreground: 220 12% 65%;
+    --accent: 224 24% 18%;
+    --accent-foreground: 220 20% 96%;
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 224 18% 20%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image: radial-gradient(circle at 15% 0%, hsla(243, 75%, 59%, 0.08), transparent 45%),
+      radial-gradient(circle at 85% 10%, hsla(189, 85%, 43%, 0.08), transparent 45%);
+    background-attachment: fixed;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-card/70 backdrop-blur-md border border-border/60;
+  }
+  .glass-strong {
+    @apply bg-card/90 backdrop-blur-xl border border-border/70;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary;
+  }
+}
+
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius);
+}
